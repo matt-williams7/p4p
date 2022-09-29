@@ -24,7 +24,7 @@ def readData(file, RSI =False):
         data["Aroon2"] = temp1.astype(int)-temp2.astype(int)
         data["MACD2"] = data["MACD hist"]/abs(data["MACD hist"]) 
         data["ADX2"] = data["ADX"]>40
-        # Modify close, LR, PR, OBV
+        # Modify , LR, PR, OBV
         data["OBV"] = (data["OBV"] - np.mean(data["OBV"]))/np.std(data["OBV"])
     else:
         data.drop(["Log Return", "Percentage Return", "OBV"], axis=1, inplace=True)
@@ -58,8 +58,8 @@ def sigmoid(x,a):
 
 # Define function for taking action for current timestep
 def action(x, current, portfolio, price, fee):
-    sigScale = x[0]
-    actionScale = x[1]
+    sigScale = 0.03#x[0]
+    actionScale = 0.1#x[1]
     linParams = x[2:]
     #sigScale = x[0]
     # portCont = x[]
@@ -71,7 +71,7 @@ def action(x, current, portfolio, price, fee):
 
     # Get sigmoid value
     sig = sigmoid(summ,sigScale)
-
+    #print(sig)
     # Get portfolio force
 
     # Get final value
@@ -152,7 +152,7 @@ def performSim(data, xopt, portfolio, nm, test):
     changes = np.zeros(nm)
 
     # For each month
-    for month in range(test):
+    for month in test:
 
         # For each day
         for day in range(30):
@@ -167,6 +167,50 @@ def performSim(data, xopt, portfolio, nm, test):
 
 
     return(np.mean(changes))
+
+
+# Define function for testing
+def testSim(data, xopt, portfolio, n, nstart,fee):
+    n2 = n-nstart
+    coinss = np.zeros(n2)
+    cashs = np.zeros(n2)
+    wealths = np.zeros(n2)
+    ogWealths = np.zeros(n2)
+    
+    # For each day
+    for ind in range(nstart,n):
+        # Get current day
+        current = data.iloc[ind]
+
+        # Take action
+        portfolio,finalPrice = action(xopt, current, portfolio, close[ind], fee)
+
+        # Update current coins and cash
+        coins = portfolio[0] 
+        cash = portfolio[1]
+        # Update history vector of coins, cash, wealth, and baseline wealths
+        coinss[ind-nstart] = coins
+        cashs[ind-nstart] = cash
+        wealths[ind-nstart] = coins*finalPrice + cash
+        ogWealths[ind-nstart] = close[0]+close[ind]
+
+    dates = data.index[nstart:n]
+
+    return(coinss, cashs, wealths, ogWealths,dates)
+
+# Define plotting functions
+def plotVsBaseline(dates, wealths, ogWealths):
+    plt.plot(dates, wealths, 'b', label = 'Wealth')
+    plt.plot(dates, ogWealths, 'r', label = "Baseline")
+    plt.legend()
+    plt.show()
+
+def plotCoins(dates, coinss, close):
+    plt.plot(dates, coinss, 'y', label = 'Coins')
+    plt.plot(dates, close/np.mean(close), 'r', label = 'Price')
+    plt.legend()
+    plt.show()
+
 
 # READ DATA =======================================
 
@@ -188,38 +232,59 @@ initPort = (1,close[0])
 xopts = []
 fopts = []
 
+if (False):
 # For each cval iteration
-for i in range(10):
-    # Get test and train samples (how many of each??)
-    msamp = rand.sample(ms,nm)
-    train = msamp[0:int(np.ceil(nm/2)+1)]
-    test = msamp[int(np.ceil(nm/2)+1):nm]
+    for i in range(10):
+        # Get test and train samples (how many of each??)
+        msamp = rand.sample(ms,nm)
+        train = msamp[0:int(np.ceil(nm/2)+1)]
+        test = msamp[int(np.ceil(nm/2)+1):nm]
 
-    # Training ------------
+        # Training ------------
 
-    # Make ub and lbs
-    ub = [1000 for i in range(data.shape[1]+2)]
-    lb = [-x for x in ub]
+        # Make ub and lbs
+        ub = [10 for i in range(data.shape[1]+2)]
+        ub[1] = 1
+        ub[0]=1
+        lb = [-x for x in ub]
 
-    # Fee
-    fee = 0.01
+        # Fee
+        fee = 0.01
 
-    # Run pso
-    args = (data, initPort, close, fee, nm, train)
-    xopt, fopt = pso(fitness, lb, ub, args=args, debug = True, maxiter=8)
+        # Run pso
+        args = (data, initPort, close, fee, nm, train)
+        xopt, fopt = pso(fitness, lb, ub, args=args, debug = True, maxiter=8)
+        #xopt = [ 14103.19537751, 16143.54669374, -4951.91813066, 52975.42537164, 9014.75928065, -57164.95668836, -62689.76194088, -23160.74809452, 40204.74441736]
+        #print(xopt)     
+        #print(fopt)
 
-    #print(xopt)
-    #print(fopt)
+        # Testing ------------------
 
-    # Testing ------------------
+        perf = performSim(data, xopt, initPort, nm, test)
 
-    perf = performSim(data, xopt, initPort, nm, test)
-
-    xopts.append(xopt)
-    fopts.append(perf)
+        xopts.append(xopt)
+        fopts.append(perf)
+        print("Performance is: ", perf)
 
 
 print("yee")
+#xopt = xopts[np.argmax(fopts)]
+
+xopt = [ -0.34665769,  -0.27454468,   8.0308641,    6.75053971,   9.88883103, -10,         -10,         -3.28183848,  -0.55719504]
+
+# TEST =====================================================
+
+# Set up test simulation
+
+coinss, cashs, wealths, ogWealths, dates = testSim(data, xopt, initPort, nd, 0,0.01)
+
+
+# PLOT =================================
+
+
+
+plotVsBaseline(dates, wealths, ogWealths)
+plotCoins(dates, coinss, close[0:nd])
 
 # Split data into batches (months or sets of months)
 # Test/train splits
