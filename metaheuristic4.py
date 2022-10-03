@@ -58,8 +58,8 @@ def sigmoid(x,a):
 
 # Define function for taking action for current timestep
 def action(x, current, portfolio, price, fee):
-    sigScale = 0.03#x[0]
-    actionScale = 0.1#x[1]
+    sigScale = x[0]
+    actionScale = x[1]
     linParams = x[2:]
     #sigScale = x[0]
     # portCont = x[]
@@ -230,11 +230,11 @@ rand.seed(700)
 initPort = (1,close[0])
 
 xopts = []
-fopts = []
+perfs = []
 
 if (False):
 # For each cval iteration
-    for i in range(10):
+    for i in range(5):
         # Get test and train samples (how many of each??)
         msamp = rand.sample(ms,nm)
         train = msamp[0:int(np.ceil(nm/2)+1)]
@@ -244,8 +244,9 @@ if (False):
 
         # Make ub and lbs
         ub = [10 for i in range(data.shape[1]+2)]
-        ub[1] = 1
-        ub[0]=1
+        ub[0]=0.1 # sigscale
+        ub[1] = 1 #actionscale
+        
         lb = [-x for x in ub]
 
         # Fee
@@ -263,14 +264,19 @@ if (False):
         perf = performSim(data, xopt, initPort, nm, test)
 
         xopts.append(xopt)
-        fopts.append(perf)
+        perfs.append(perf)
         print("Performance is: ", perf)
 
 
 print("yee")
-#xopt = xopts[np.argmax(fopts)]
+#xopt = xopts[np.argmax(perfs)]
+#print(xopt)
 
-xopt = [ -0.34665769,  -0.27454468,   8.0308641,    6.75053971,   9.88883103, -10,         -10,         -3.28183848,  -0.55719504]
+# xopt with bounds of 10 with sig scale = 0.03, action scale = 0.1, 10 cval iterations
+#xopt = [ -0.34665769,  -0.27454468,   8.0308641,    6.75053971,   9.88883103, -10,         -10,         -3.28183848,  -0.55719504]
+
+# xopt with bounds of 10, sigscale bound = 0.1, actionscale 1, 5cval iterations
+xopt = [ 0.09710014, -0.74802917, -8.20446748, -9.43895505, -3.43790881,  8.7832292, -0.40596609,  5.49552942,  0.34541283]
 
 # TEST =====================================================
 
