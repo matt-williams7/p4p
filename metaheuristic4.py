@@ -9,7 +9,7 @@ import random as rand
 # FUNCTIONS ====================================
 
 # Define function for reading in data
-def readData(file, RSI =False):
+def readData(file, bch, RSI =False):
     ''' 
 
     '''
@@ -43,9 +43,9 @@ def readData(file, RSI =False):
     drop = ["date.1","open","high","low", "close", "volume", "DI_pos", "DI_neg", "Aroon oscilator", "Aroon down", "Aroon up", "MACD", "MACD hist", "MACD signal", "RSI","ADX"] 
     data.drop(drop, axis=1, inplace=True)
 
-    # Drop rows to have nrows a multiple of 30
+    # Drop rows to have nrows a multiple of batch size
     nrow = data.shape[0]
-    data = data.iloc[nrow%30:nrow]
+    data = data.iloc[nrow%bch:nrow]
     
     # Return new dataframe and close vector
     return (data, close)
@@ -61,24 +61,19 @@ def action(x, current, portfolio, price, fee):
     sigScale = x[0]
     actionScale = x[1]
     linParams = x[2:]
-    #sigScale = x[0]
     # portCont = x[]
     #sigCont = x[]
-    #actionParam = x[2]
 
     # Get linear combination
     summ = sum(np.multiply(current,linParams))
 
     # Get sigmoid value
     sig = sigmoid(summ,sigScale)
-    #print(sig)
+    
     # Get portfolio force
 
     # Get final value
         # sigmoid*w1 + force*w2
-    
-    # Determine action from value
-    
 
     # Determine change in coins from action
     change = actionScale*sig
@@ -111,7 +106,7 @@ def action(x, current, portfolio, price, fee):
 def fitness(x, *args):
     '''
     x = params
-    args = (data, initial_portfolio = (coins,cash), close, fee, #month, train months)
+    args = (data, initial_portfolio = (coins,cash), close, fee, #month, train months, lambda, batch size)
     '''
     
     # Extract args
@@ -122,7 +117,8 @@ def fitness(x, *args):
     fee = args[3] # fee
     nm = args[4] # number of batches
     train = args[5] # train
-    #test = args[6] # test
+    lam = args[6] #lambda
+    bch = args[7] #batch size
 
     portfolio = initPort
     changes = np.zeros(nm)
@@ -132,53 +128,76 @@ def fitness(x, *args):
         portfolio = initPort
 
         # Loop through days
-        for day in range(30):
+        for day in range(bch):
 
             # Get current and next day's data
-            ind = month*30+day
+            ind = month*bch+day
             current = data.iloc[ind]
             #next = data.iloc[ind+1]
 
             # Take action
             portfolio,finalPrice = action(x, current, portfolio, close[ind], fee)
-            
-        changes[month] = (-portfolio[0]+initPort[0])*finalPrice - portfolio[1] + initPort[1]
-    print(np.mean(changes))
-    return(np.mean(changes))
 
-# Define function for testing
-def performSim(data, xopt, portfolio, nm, test):
+        # Append month's performance to others    
+        changes[month] = (-portfolio[0]+initPort[0])*finalPrice - portfolio[1] + initPort[1]
+
+    # If using CVar
+    if lam>0:
+        # Set up weights
+        arg_min = np.argmin(changes)
+        weights = [(1-lam)/(nm-1) for i in range(nm) ]
+        weights[arg_min] = lam
+
+    # Otherwise
+    else:
+        # Equal weights
+        weights = [1/nm for i in range(nm)]
+
+    # Return weighted month performances
+    ret = np.sum(np.multiply(weights,changes))
     
+    print(ret) 
+    return(ret)
+
+# Define function for getting a model's out-of-sample performance
+def performSim(data, xopt, portfolio, nm, test, bch):
+    
+    # Initialize array for monthly performance
     changes = np.zeros(nm)
 
     # For each month
     for month in test:
 
         # For each day
-        for day in range(30):
+        for day in range(bch):
             # Get current day and its data
-            ind = month*30+day
+            ind = month*bch+day
             current = data.iloc[ind]
 
             # Take action
             portfolio,finalPrice = action(xopt, current, portfolio, close[ind], fee)
 
+        # Append month's performance to others
         changes[month] = (-portfolio[0]+initPort[0])*finalPrice - portfolio[1] + initPort[1]
 
-
+    # Return OOB performance as monthly performance average
     return(np.mean(changes))
 
 
-# Define function for testing
-def testSim(data, xopt, portfolio, n, nstart,fee):
-    n2 = n-nstart
+# Define function for simulating trader on a subset of data
+def testSim(data, xopt, portfolio, nstart, nfinish, fee):
+
+    # Get number of days in simulatio
+    n2 = nfinish-nstart
+
+    # Set up output arrays
     coinss = np.zeros(n2)
     cashs = np.zeros(n2)
     wealths = np.zeros(n2)
     ogWealths = np.zeros(n2)
     
     # For each day
-    for ind in range(nstart,n):
+    for ind in range(nstart,nfinish):
         # Get current day
         current = data.iloc[ind]
 
@@ -194,39 +213,96 @@ def testSim(data, xopt, portfolio, n, nstart,fee):
         wealths[ind-nstart] = coins*finalPrice + cash
         ogWealths[ind-nstart] = close[0]+close[ind]
 
-    dates = data.index[nstart:n]
+    # Get dates of subset to return
+    dates = data.index[nstart:nfinish]
+
 
     return(coinss, cashs, wealths, ogWealths,dates)
+
+
+# Function for simulating/plotting on months
+def testSimMonth(data, xopt, portfolio,bch,fee, close):
+    fig,axs = plt.subplots(2,4)
+    months = [i for i in range(8)]
+    for i in range(len(months)-1):
+        month = months[i]
+        nstart = month*bch
+        nfinish = month*bch+bch
+        coinss, cashs, wealths, ogWealths, dates = testSim(data, xopt, portfolio, nstart,nfinish, fee)
+        axs[int(i/4),(i%4)].plot(dates, wealths, 'b', label = 'Wealth')
+        axs[int(i/4),(i%4)].plot(dates, ogWealths, 'r', label = "Baseline")
+        # plt.title("Autotrader vs Buy&Hold Wealth")
+        # plt.ylabel("Wealth ($)")
+        # plt.xlabel("Date")
+        # plt.legend()
+        # plt.show()
+        # plotVsBaseline(dates, wealths, ogWealths)
+        #plotCoins(dates, coinss, close[nstart:nfinish]) 
+    plt.show()
+    fig1,axs1 = plt.subplots(2,4)
+    for i in range(len(months)-1):
+        month = months[i]
+        nstart = month*bch
+        nfinish = month*bch+bch
+        coinss, cashs, wealths, ogWealths, dates = testSim(data, xopt, portfolio, nstart,nfinish, fee)
+        axs1[int(i/4),(i%4)].plot(dates, coinss, 'y', label = 'Coins')
+        axs1[int(i/4),(i%4)].plot(dates, close[nstart:nfinish]/np.mean(close[nstart:nfinish]), 'r', label = 'Price')
+    plt.show()
 
 # Define plotting functions
 def plotVsBaseline(dates, wealths, ogWealths):
     plt.plot(dates, wealths, 'b', label = 'Wealth')
     plt.plot(dates, ogWealths, 'r', label = "Baseline")
+    plt.title("Autotrader vs Buy&Hold Wealth")
+    plt.ylabel("Wealth ($)")
+    plt.xlabel("Date")
     plt.legend()
     plt.show()
 
 def plotCoins(dates, coinss, close):
     plt.plot(dates, coinss, 'y', label = 'Coins')
     plt.plot(dates, close/np.mean(close), 'r', label = 'Price')
+    plt.xlabel("Date")
+    plt.title("Number of coins vs Normalised coin value")
     plt.legend()
+    plt.show()
+
+# Function for plotting parameters
+def plotParams(data, xopt):
+
+    names = ['Sig scale', 'ActionScale']
+    names.extend(list(data.columns.values))
+    plt.bar(names,xopt)
+    for i in range(len(xopt)):
+        val = xopt[i]
+        plt.text(i-0.25,val/2,val)
+    plt.xlabel("Parameters")
+    plt.ylabel("Parameter values")
+    plt.title("Parameter Values")
     plt.show()
 
 
 # READ DATA =======================================
-
+bch = 60
 # Read in data
 data_read = True
 RSI = False
 if data_read == True:
-    data,close = readData("TI_data.csv", RSI)
+    data,close = readData("TI_data_eth.csv", bch, RSI)
 
 # MAKE TEST/TRAIN ======================
+
 nd = data.shape[0]
-nm = int(nd/30)
+nm = int(nd/bch)
 
 ms = [i for i in range(nm)]
 
 rand.seed(700)
+msamp = rand.sample(ms,nm)
+nmt = int(0.6*nm)
+alltrain = msamp[0:nmt]
+test = msamp[nmt:nm]
+
 initPort = (1,close[0])
 
 xopts = []
@@ -234,67 +310,64 @@ perfs = []
 
 if (False):
 # For each cval iteration
-    for i in range(5):
-        # Get test and train samples (how many of each??)
-        msamp = rand.sample(ms,nm)
-        train = msamp[0:int(np.ceil(nm/2)+1)]
-        test = msamp[int(np.ceil(nm/2)+1):nm]
+    for i in range(2):
+        print("\n\n\n\n\n\n===========================\nITERATION ", i, "\n======================================\n\n\n\n")
+        # Get train samp
+
+        train = rand.sample(alltrain,nmt-int(0.2*nmt))
 
         # Training ------------
 
         # Make ub and lbs
         ub = [10 for i in range(data.shape[1]+2)]
-        ub[0]=0.1 # sigscale
-        ub[1] = 1 #actionscale
-        
         lb = [-x for x in ub]
+        # sigscale
+        lb[0]=0
+        ub[0]=0.1 
+
+        #actionscale
+        lb[0]=0
+        ub[1] = 1 
+        
+        
 
         # Fee
         fee = 0.01
-
+        lam = 0.2
         # Run pso
-        args = (data, initPort, close, fee, nm, train)
-        xopt, fopt = pso(fitness, lb, ub, args=args, debug = True, maxiter=8)
-        #xopt = [ 14103.19537751, 16143.54669374, -4951.91813066, 52975.42537164, 9014.75928065, -57164.95668836, -62689.76194088, -23160.74809452, 40204.74441736]
-        #print(xopt)     
-        #print(fopt)
+        args = (data, initPort, close, fee, nm, train, lam,bch)
+        xopt, fopt = pso(fitness, lb, ub, args=args, debug = True, maxiter=1)
 
         # Testing ------------------
 
-        perf = performSim(data, xopt, initPort, nm, test)
+        perf = performSim(data, xopt, initPort, nm, test,bch)
 
         xopts.append(xopt)
         perfs.append(perf)
         print("Performance is: ", perf)
 
+#data_pd = {'xopts':xopts,'perfs':perfs}
+#df = pd.DataFrame(data =data_pd)
+#df.to_csv('D:\\OneDrive\\Documents\\Uni\\2022\\ENGSCI700\\MH\\xopts.csv')
+
 
 print("yee")
-#xopt = xopts[np.argmax(perfs)]
-#print(xopt)
-
-# xopt with bounds of 10 with sig scale = 0.03, action scale = 0.1, 10 cval iterations
-#xopt = [ -0.34665769,  -0.27454468,   8.0308641,    6.75053971,   9.88883103, -10,         -10,         -3.28183848,  -0.55719504]
-
-# xopt with bounds of 10, sigscale bound = 0.1, actionscale 1, 5cval iterations
-xopt = [ 0.09710014, -0.74802917, -8.20446748, -9.43895505, -3.43790881,  8.7832292, -0.40596609,  5.49552942,  0.34541283]
-
-# TEST =====================================================
-
-# Set up test simulation
-
-coinss, cashs, wealths, ogWealths, dates = testSim(data, xopt, initPort, nd, 0,0.01)
+#xopt = xopts[np.argmin(perfs)]
+xopt = [ 0.06100868, -7.71590182,  5.13015153,  4.58013229, -7.86504274, -0.51216633, -6.68232843,  6.78272049, -0.57935946]
+print(xopt)
 
 
-# PLOT =================================
+# TEST PLOTS =====================================================
+
+# WHOLE DATA
+nstart = 0
+coinss, cashs, wealths, ogWealths, dates = testSim(data, xopt, initPort, nstart, nd,0.01)
 
 
 
 plotVsBaseline(dates, wealths, ogWealths)
-plotCoins(dates, coinss, close[0:nd])
+plotCoins(dates, coinss, close[nstart:nd]) 
+plotParams(data,xopt)
 
-# Split data into batches (months or sets of months)
-# Test/train splits
-# Train on train months, weighting worse months higher by multiplying
-
-
-# Enforce specific parameters to be +ve or -ve  
+#MONTHS
+testSimMonth(data, xopt, initPort,100,0.01, close)
