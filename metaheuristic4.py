@@ -144,9 +144,9 @@ def fitness(x, *args):
     # If using CVar
     if lam>0:
         # Set up weights
-        arg_min = np.argmin(changes)
+        arg_max = np.argmax(changes)
         weights = [(1-lam)/(nm-1) for i in range(nm) ]
-        weights[arg_min] = lam
+        weights[arg_max] = lam
 
     # Otherwise
     else:
@@ -223,8 +223,8 @@ def testSim(data, xopt, portfolio, nstart, nfinish, fee):
 # Function for simulating/plotting on months
 def testSimMonth(data, xopt, portfolio,bch,fee, close):
     fig,axs = plt.subplots(2,4)
-    months = [i for i in range(8)]
-    for i in range(len(months)-1):
+    months = [i for i in range(0,int(data.shape[0]/bch),3)]
+    for i in range(8):
         month = months[i]
         nstart = month*bch
         nfinish = month*bch+bch
@@ -288,7 +288,7 @@ bch = 60
 data_read = True
 RSI = False
 if data_read == True:
-    data,close = readData("TI_data_eth.csv", bch, RSI)
+    data,close = readData("TI_data_btc1.csv", bch, RSI)
 
 # MAKE TEST/TRAIN ======================
 
@@ -326,7 +326,7 @@ if (False):
         ub[0]=0.1 
 
         #actionscale
-        lb[0]=0
+        lb[1]=0
         ub[1] = 1 
         
         
@@ -353,6 +353,8 @@ if (False):
 
 print("yee")
 #xopt = xopts[np.argmin(perfs)]
+
+# Most recent best btc xopt:
 xopt = [ 0.06100868, -7.71590182,  5.13015153,  4.58013229, -7.86504274, -0.51216633, -6.68232843,  6.78272049, -0.57935946]
 print(xopt)
 
@@ -370,4 +372,4 @@ plotCoins(dates, coinss, close[nstart:nd])
 plotParams(data,xopt)
 
 #MONTHS
-testSimMonth(data, xopt, initPort,100,0.01, close)
+testSimMonth(data, xopt, initPort,bch,0.01, close)
